@@ -10,6 +10,17 @@ import sys
 import traceback
 
 
+try:
+    import IPython
+    from ipdb import __main__ as ipdb
+except ImportError:
+    IPDB = False
+    Pdb = pdb.Pdb
+else:
+    IPDB = True
+    Pdb = IPython.core.debugger.Pdb
+
+
 class FileObjectWrapper(object):
     def __init__(self, fileobject, stdio):
         self._obj = fileobject
@@ -25,7 +36,7 @@ class FileObjectWrapper(object):
         return attr
 
 
-class Rpdb(pdb.Pdb):
+class Rpdb(Pdb):
 
     def __init__(self, addr="127.0.0.1", port=4444):
         """Initialize the socket and initialize pdb."""
@@ -50,10 +61,21 @@ class Rpdb(pdb.Pdb):
 
         (clientsocket, address) = self.skt.accept()
         handle = clientsocket.makefile('rw')
-        pdb.Pdb.__init__(self, completekey='tab',
-                         stdin=FileObjectWrapper(handle, self.old_stdin),
-                         stdout=FileObjectWrapper(handle, self.old_stdin))
+        pdb_kwargs = {
+            # 'completekey': 'tab',
+            'stdin': FileObjectWrapper(handle, self.old_stdin),
+            'stdout': FileObjectWrapper(handle, self.old_stdin)
+        }
+        if IPDB:
+            # ipdb.update_stdout()
+            IPython.utils.io.stdout = handle
+            ipdb.wrap_sys_excepthook()
+            pdb_kwargs['color_scheme'] = ipdb.def_colors
+        Pdb.__init__(self, **pdb_kwargs)
         sys.stdout = sys.stdin = handle
+        if IPDB:
+            IPython.utils.io.stdout = IPython.utils.io.stdin = handle
+            ipdb.wrap_sys_excepthook()
         OCCUPIED.claim(port, sys.stdout)
 
     def shutdown(self):
@@ -66,7 +88,7 @@ class Rpdb(pdb.Pdb):
     def do_continue(self, arg):
         """Clean-up and do underlying continue."""
         try:
-            return pdb.Pdb.do_continue(self, arg)
+            return Pdb.do_continue(self, arg)
         finally:
             self.shutdown()
 
@@ -75,7 +97,7 @@ class Rpdb(pdb.Pdb):
     def do_quit(self, arg):
         """Clean-up and do underlying quit."""
         try:
-            return pdb.Pdb.do_quit(self, arg)
+            return Pdb.do_quit(self, arg)
         finally:
             self.shutdown()
 
@@ -84,7 +106,7 @@ class Rpdb(pdb.Pdb):
     def do_EOF(self, arg):
         """Clean-up and do underlying EOF."""
         try:
-            return pdb.Pdb.do_EOF(self, arg)
+            return Pdb.do_EOF(self, arg)
         finally:
             self.shutdown()
 
